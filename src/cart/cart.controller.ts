@@ -11,8 +11,8 @@ import {
   HttpStatus,
 } from '@nestjs/common';
 import { CartService } from './cart.service';
-import { AddItemToCartDto } from './dto/add-item-to-cart.dto';
-import { UpdateCartItemQuantityDto } from './dto/update-cart-item-quantity.dto';
+import { AddItemToCartDto } from './dto/add-to-cart.dto';
+import { UpdateCartItemQuantityDto } from './dto/update-cart-item.dto';
 
 @Controller('cart')
 export class CartController {
