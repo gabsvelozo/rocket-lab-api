@@ -1,118 +1,146 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { PrismaService } from '../prisma/prisma.service';
 import { ProductsService } from '../products/products.service';
-import { Product } from '../products/entities/product.entity';
+import { AddToCartDto } from './dto/add-to-cart.dto';
+import { UpdateCartItemDto } from './dto/update-cart-item.dto';
+import { Cart, CartItem, Product } from '@prisma/client';
 
-export interface CartItem {
-  product: Product;
-  quantity: number;
-}
-
-export interface Cart {
-  items: CartItem[];
-  total: number;
-}
+type CartWithDetails = Cart & {
+  items: (CartItem & {
+    product: Product;
+  })[];
+};
 
 @Injectable()
 export class CartService {
-  private currentCartItems: CartItem[] = []; 
+  constructor(
+    private prisma: PrismaService,
+    private readonly productsService: ProductsService,
+  ) {}
 
-  constructor(private readonly productsService: ProductsService) {}
+  private async findOrCreateCart(cartId?: string, userId?: string): Promise<CartWithDetails> {
+    if (cartId) {
+      const cart = await this.prisma.client.cart.findUnique({
+        where: { id: cartId },
+        include: { items: { include: { product: true } } },
+      });
 
-  private calculateTotal(): number {
-    return this.currentCartItems.reduce(
-      (acc, item) => acc + item.product.price * item.quantity,
-      0,
-    );
+      if (cart) {
+        return cart as CartWithDetails;
+      }
+    }
+
+    const newCart = await this.prisma.client.cart.create({
+      data: { userId: userId || null },
+      include: { items: { include: { product: true } } },
+    });
+    return newCart as CartWithDetails;
   }
 
-  async addItem(productId: string, quantityToAdd: number): Promise<Cart> {
-    if (quantityToAdd <= 0) {
-        throw new BadRequestException('A quantidade a ser adicionada deve ser positiva.');
+  async addItemToCart(cartIdFromCookieOrUser: string | undefined, addToCartDto: AddToCartDto): Promise<CartWithDetails> { 
+    const product = await this.productsService.findOne(addToCartDto.productId);
+
+    if (product.stock < addToCartDto.quantity) {
+      throw new BadRequestException(`Estoque insuficiente para o produto "${product.name}". Disponível: ${product.stock}.`);
     }
-    const product = await this.productsService.findOne(productId);
 
-    const existingItemIndex = this.currentCartItems.findIndex(
-      (item) => item.product.id === productId,
-    );
+    let cart = await this.findOrCreateCart(cartIdFromCookieOrUser); 
 
-    if (existingItemIndex > -1) {
-      const newQuantity = this.currentCartItems[existingItemIndex].quantity + quantityToAdd;
+    const existingCartItem = await this.prisma.client.cartItem.findUnique({
+      where: {
+        cartId_productId: {
+          cartId: cart.id,
+          productId: addToCartDto.productId,
+        },
+      },
+    });
+
+    if (existingCartItem) {
+      const newQuantity = existingCartItem.quantity + addToCartDto.quantity;
       if (product.stock < newQuantity) {
-        throw new BadRequestException(
-          `Estoque insuficiente para ${product.name}. Em estoque: ${product.stock}, Solicitado no total: ${newQuantity}`,
-        );
+        throw new BadRequestException(`Estoque insuficiente para adicionar mais unidades do produto "${product.name}". Já no carrinho: ${existingCartItem.quantity}, Tentando adicionar: ${addToCartDto.quantity}, Disponível: ${product.stock}.`);
       }
-      this.currentCartItems[existingItemIndex].quantity = newQuantity;
+      await this.prisma.client.cartItem.update({
+        where: { id: existingCartItem.id },
+        data: { quantity: newQuantity },
+      });
     } else {
-      if (product.stock < quantityToAdd) {
-        throw new BadRequestException(
-          `Estoque insuficiente para ${product.name}. Em estoque: ${product.stock}, Solicitado: ${quantityToAdd}`,
-        );
-      }
-      this.currentCartItems.push({ product, quantity: quantityToAdd });
+      await this.prisma.client.cartItem.create({
+        data: {
+          cartId: cart.id,
+          productId: addToCartDto.productId,
+          quantity: addToCartDto.quantity,
+          priceAtTime: product.price,
+        },
+      });
     }
-    return this.getCart();
+    return this.getCart(cart.id);
   }
 
-  async removeItem(productId: string): Promise<Cart> {
-    const itemIndex = this.currentCartItems.findIndex(
-      (item) => item.product.id === productId,
-    );
+  async getCart(cartId: string): Promise<CartWithDetails> {
+    const cart = await this.prisma.client.cart.findUnique({
+      where: { id: cartId },
+      include: {
+        items: {
+          include: { product: true },
+          orderBy: { createdAt: 'asc' },
+        },
+      },
+    });
 
-    if (itemIndex === -1) {
-      throw new NotFoundException(`Produto com ID "${productId}" não encontrado no carrinho.`);
+    if (!cart) {
+      throw new NotFoundException(`Carrinho com ID "${cartId}" não encontrado.`);
     }
-
-    this.currentCartItems.splice(itemIndex, 1);
-    return this.getCart();
+    return cart as CartWithDetails;
   }
 
-  async updateItemQuantity(productId: string, newQuantity: number): Promise<Cart> {
-    if (newQuantity < 0) {
-        throw new BadRequestException('A quantidade não pode ser negativa.');
-    }
-    
-    const itemIndex = this.currentCartItems.findIndex(
-      (item) => item.product.id === productId,
-    );
+  async updateCartItem(cartId: string, itemId: string, updateCartItemDto: UpdateCartItemDto): Promise<CartWithDetails> {
+    const cartItem = await this.prisma.client.cartItem.findUnique({
+      where: { id: itemId, cartId: cartId },
+      include: { product: true }
+    });
 
-    if (itemIndex === -1) {
-      if (newQuantity > 0) {
-          throw new NotFoundException(`Produto com ID "${productId}" não encontrado no carrinho para atualização.`);
-      }
-      return this.getCart(); 
+    if (!cartItem) {
+      throw new NotFoundException(`Item com ID "${itemId}" não encontrado no carrinho "${cartId}".`);
     }
 
-    if (newQuantity === 0) {
-      this.currentCartItems.splice(itemIndex, 1); 
-      return this.getCart();
+    if (cartItem.product.stock < updateCartItemDto.quantity) {
+      throw new BadRequestException(`Estoque insuficiente para o produto "${cartItem.product.name}". Disponível: ${cartItem.product.stock}.`);
     }
 
-    const product = this.currentCartItems[itemIndex].product; 
-
-    if (product.stock < newQuantity) {
-      throw new BadRequestException(
-        `Estoque insuficiente para ${product.name}. Em estoque: ${product.stock}, Nova quantidade solicitada: ${newQuantity}`,
-      );
+    if (updateCartItemDto.quantity <= 0) {
+        await this.prisma.client.cartItem.delete({ where: { id: itemId }});
+    } else {
+        await this.prisma.client.cartItem.update({
+          where: { id: itemId },
+          data: { quantity: updateCartItemDto.quantity },
+        });
     }
-
-    this.currentCartItems[itemIndex].quantity = newQuantity;
-    return this.getCart();
+    return this.getCart(cartId);
   }
 
-  getCart(): Cart {
-    return {
-      items: [...this.currentCartItems], 
-      total: this.calculateTotal(),
-    };
+  async removeItemFromCart(cartId: string, itemId: string): Promise<CartWithDetails> {
+    const cartItem = await this.prisma.client.cartItem.findUnique({
+      where: { id: itemId, cartId: cartId },
+    });
+
+    if (!cartItem) {
+      throw new NotFoundException(`Item com ID "${itemId}" não encontrado no carrinho "${cartId}" para remoção.`);
+    }
+
+    await this.prisma.client.cartItem.delete({
+      where: { id: itemId },
+    });
+
+    return this.getCart(cartId);
   }
 
-  clearCart(): Cart {
-    this.currentCartItems = [];
-    return this.getCart();
-  }
+  async clearCart(cartId: string): Promise<CartWithDetails> {
+    await this.getCart(cartId); 
 
-  getItemsForOrder(): CartItem[] {
-    return [...this.currentCartItems]; 
+    await this.prisma.client.cartItem.deleteMany({
+      where: { cartId: cartId },
+    });
+    return this.getCart(cartId); 
   }
 }
