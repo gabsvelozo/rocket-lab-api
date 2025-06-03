@@ -1,80 +1,74 @@
+// src/products/products.service.ts
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
-import { Product } from './entities/product.entity';
-import { CreateProductDto } from './dto/create-product.dto'; 
-import { UpdateProductDto } from './dto/update-product.dto'; 
+import { PrismaService } from '../prisma/prisma.service';
+import { CreateProductDto } from './dto/create-product.dto';
+import { UpdateProductDto } from './dto/update-product.dto';
+// Remova QueryMode da importação por enquanto
+import { Product, Prisma } from '@prisma/client';
 
 @Injectable()
 export class ProductsService {
-  constructor(
-    @InjectRepository(Product)
-    private readonly productRepository: Repository<Product>,
-  ) {}
+  constructor(private prisma: PrismaService) {}
 
-  /**
-   * Cria um novo produto.
-   * @param createProductDto - Dados para criar o produto.
-   * @returns O produto criado.
-   */
   async create(createProductDto: CreateProductDto): Promise<Product> {
-    const newProduct = this.productRepository.create(createProductDto);
-    return this.productRepository.save(newProduct);
+    return this.prisma.client.product.create({
+      data: createProductDto,
+    });
   }
 
-  /**
-   * Retorna todos os produtos.
-   * @returns Uma lista de todos os produtos.
-   */
+  async findAll(name?: string, minPrice?: number, maxPrice?: number): Promise<Product[]> {
+    const where: Prisma.ProductWhereInput = {};
 
-  async findAll(): Promise<Product[]> {
-    return this.productRepository.find();
+    // SEÇÃO DO FILTRO DE NOME TEMPORARIAMENTE COMENTADA/REMOVIDA
+    // if (name) {
+    //   where.name = {
+    //     contains: name,
+    //     // mode: QueryMode.insensitive, // ou mode: 'insensitive'
+    //   };
+    // }
+
+    if (minPrice !== undefined) {
+      if (!where.price) {
+        where.price = {};
+      }
+      (where.price as Prisma.FloatFilter).gte = minPrice;
+    }
+
+    if (maxPrice !== undefined) {
+      if (!where.price) {
+        where.price = {};
+      }
+      (where.price as Prisma.FloatFilter).lte = maxPrice;
+    }
+
+    return this.prisma.client.product.findMany({ where });
   }
-
-  /**
-   * Busca um produto específico pelo ID.
-   * @param id - O ID do produto a ser buscado.
-   * @returns O produto encontrado.
-   * @throws NotFoundException se o produto não for encontrado.
-   */
 
   async findOne(id: string): Promise<Product> {
-    const product = await this.productRepository.findOneBy({ id });
+    const product = await this.prisma.client.product.findUnique({
+      where: { id },
+    });
+
     if (!product) {
       throw new NotFoundException(`Produto com ID "${id}" não encontrado.`);
     }
     return product;
   }
 
-  /**
-   * Atualiza um produto existente.
-   * @param id - O ID do produto a ser atualizado.
-   * @param updateProductDto - Dados para atualizar o produto.
-   * @returns O produto atualizado.
-   * @throws NotFoundException se o produto não for encontrado.
-   */
-
   async update(id: string, updateProductDto: UpdateProductDto): Promise<Product> {
-    const product = await this.productRepository.preload({
-      id: id,
-      ...updateProductDto,
-    });
+    await this.findOne(id);
 
-    if (!product) {
-      throw new NotFoundException(`Produto com ID "${id}" não encontrado para atualização.`);
-    }
-    return this.productRepository.save(product);
+    return this.prisma.client.product.update({
+      where: { id },
+      data: updateProductDto,
+    });
   }
 
-  /**
-   * Remove um produto.
-   * @param id - O ID do produto a ser removido.
-   * @returns Promise<void>
-   * @throws NotFoundException se o produto não for encontrado.
-   */
+  async remove(id: string): Promise<Product> {
+    await this.findOne(id);
 
-  async remove(id: string): Promise<void> {
-    const product = await this.findOne(id); 
-    await this.productRepository.remove(product);
+    return this.prisma.client.product.delete({
+      where: { id },
+    });
   }
 }

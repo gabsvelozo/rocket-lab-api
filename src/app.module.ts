@@ -1,27 +1,34 @@
-import { Module } from '@nestjs/common';
-import { TypeOrmModule } from '@nestjs/typeorm';
-import { AppController } from './app.controller';
-import { AppService } from './app.service';
+import { Module, ValidationPipe } from '@nestjs/common';
+import { ConfigModule } from '@nestjs/config';
+import { APP_PIPE } from '@nestjs/core';
+import { PrismaModule } from './prisma/prisma.module';
 import { ProductsModule } from './products/products.module';
 import { CartModule } from './cart/cart.module';
 import { OrdersModule } from './orders/orders.module';
-import { Product } from './products/entities/product.entity';
-import { Order } from './orders/entities/order.entity'; 
-import { OrderItem } from './orders/entities/order-item.entity'; 
 
 @Module({
   imports: [
-    TypeOrmModule.forRoot({
-      type: 'sqlite',
-      database: 'shopping.sqlite',
-      entities: [Product, Order, OrderItem], 
-      synchronize: true, 
+    ConfigModule.forRoot({
+      isGlobal: true, 
     }),
+    PrismaModule,
     ProductsModule,
     CartModule,
     OrdersModule,
   ],
-  controllers: [AppController], 
-  providers: [AppService],    
+  controllers: [],
+  providers: [
+    {
+      provide: APP_PIPE,
+      useValue: new ValidationPipe({
+        whitelist: true, 
+        forbidNonWhitelisted: true,
+        transform: true, 
+        transformOptions: {
+          enableImplicitConversion: true, 
+        },
+      }),
+    },
+  ],
 })
 export class AppModule {}

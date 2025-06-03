@@ -1,32 +1,55 @@
-import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, OneToMany } from 'typeorm';
-import { OrderItem } from './order-item.entity';
+import { ApiProperty } from '@nestjs/swagger';
+import { OrderItemEntity } from './order-item.entity';
 
-export enum OrderStatus {
-  PENDING = 'PENDING',
-  PROCESSING = 'PROCESSING',
-  COMPLETED = 'COMPLETED',
-  CANCELLED = 'CANCELLED',
-}
+type PrismaOrderItemData = {
+  id: string;
+  productId: string;
+  quantity: number;
+  priceAtTime: number;
+  createdAt: Date;
+  product?: { 
+    id: string;
+    name: string;
+    price: number;
+  };
+  [key: string]: any; 
+};
 
-@Entity()
-export class Order {
-  @PrimaryGeneratedColumn('uuid')
+type OrderConstructorData = Omit<Partial<OrderEntity>, 'items'> & {
+  items?: PrismaOrderItemData[];
+};
+
+export class OrderEntity {
+  @ApiProperty()
   id: string;
 
-  @OneToMany(() => OrderItem, (orderItem) => orderItem.order, { cascade: true, eager: true }) 
-  orderItems: OrderItem[];
+  @ApiProperty({ required: false, nullable: true })
+  userId?: string | null;
 
-  @Column('decimal', { precision: 10, scale: 2 })
+  @ApiProperty()
   totalAmount: number;
 
-  @Column({
-    type: 'simple-enum',
-    enum: OrderStatus,
-    default: OrderStatus.PENDING,
-  })
-  status: OrderStatus;
+  @ApiProperty({ example: 'PENDING', description: 'Status do pedido (PENDING, COMPLETED, CANCELED)' })
+  status: string;
 
-  @CreateDateColumn()
+  @ApiProperty()
   createdAt: Date;
 
+  @ApiProperty()
+  updatedAt: Date;
+
+  @ApiProperty({ type: () => [OrderItemEntity] })
+  items: OrderItemEntity[];
+
+  constructor(partial: OrderConstructorData) {
+    const { items: prismaItems, ...otherOrderData } = partial;
+
+    Object.assign(this, otherOrderData);
+
+    if (prismaItems && Array.isArray(prismaItems)) {
+      this.items = prismaItems.map(itemData => new OrderItemEntity(itemData));
+    } else {
+      this.items = [];
+    }
+  }
 }

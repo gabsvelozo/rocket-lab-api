@@ -1,19 +1,28 @@
-import { Entity, Column, PrimaryGeneratedColumn } from 'typeorm';
+import { ApiProperty } from '@nestjs/swagger'; 
 
-@Entity() 
-export class Product {
-  @PrimaryGeneratedColumn('uuid')
+export class ProductEntity {
+  @ApiProperty()
   id: string;
 
-  @Column()
+  @ApiProperty()
   name: string;
 
-  @Column({ type: 'text', nullable: true })
-  description?: string;
+  @ApiProperty({ required: false, nullable: true })
+  description?: string | null;
 
-  @Column({ type: 'decimal', precision: 10, scale: 2 }) 
+  @ApiProperty()
   price: number;
 
-  @Column({ type: 'int', default: 0 })
+  @ApiProperty()
   stock: number;
+
+  @ApiProperty()
+  createdAt: Date;
+
+  @ApiProperty()
+  updatedAt: Date;
+
+  constructor(partial: Partial<ProductEntity>) {
+    Object.assign(this, partial);
+  }
 }

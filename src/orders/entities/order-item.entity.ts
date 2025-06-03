@@ -1,26 +1,45 @@
-import { Entity, Column, PrimaryGeneratedColumn, ManyToOne } from 'typeorm';
-import { Order } from '../order.entity';
-import { Product } from '../../products/entities/product.entity'; 
+import { ApiProperty } from '@nestjs/swagger';
+import { ProductEntity } from '../../products/entities/product.entity'; 
 
-@Entity()
-export class OrderItem {
-  @PrimaryGeneratedColumn('uuid')
+type OrderItemConstructorData = {
+  id: string;
+  productId: string;
+  quantity: number;
+  priceAtTime: number;
+  createdAt: Date;
+  orderId?: string; 
+  product?: Partial<ProductEntity>; 
+  [key: string]: any; 
+};
+
+export class OrderItemEntity {
+  @ApiProperty()
   id: string;
 
-  @ManyToOne(() => Order, (order) => order.orderItems)
-  order: Order;
+  @ApiProperty()
+  orderId: string; 
 
-  @ManyToOne(() => Product, { eager: false, onDelete: 'SET NULL', nullable: true }) 
-  product: Product; 
-
-  @Column()
+  @ApiProperty()
   productId: string;
 
-  @Column()
-  productName: string; 
-  @Column('int')
+  @ApiProperty()
   quantity: number;
 
-  @Column('decimal', { precision: 10, scale: 2 })
-  priceAtPurchase: number; 
+  @ApiProperty()
+  priceAtTime: number;
+
+  @ApiProperty()
+  createdAt: Date;
+
+  @ApiProperty({ type: () => ProductEntity, description: 'Detalhes do produto no item do pedido', required: false })
+  product?: ProductEntity;
+
+  constructor(partial: OrderItemConstructorData) {
+    const { product: productData, ...otherItemData } = partial;
+    Object.assign(this, otherItemData);
+
+    if (productData) {
+      this.product = new ProductEntity(productData);
+    }
+  }
 }
